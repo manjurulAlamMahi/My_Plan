@@ -24,22 +24,6 @@ function save(key, value) {
   }
 }
 
-function greeting() {
-  const h = new Date().getHours()
-  if (h < 12) return 'Good morning'
-  if (h < 17) return 'Good afternoon'
-  return 'Good evening'
-}
-
-function timeAgo(ts) {
-  const mins = Math.floor((Date.now() - ts) / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
-}
-
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => load(AUTH_KEY, false))
   const [theme, setTheme] = useState(() => load(THEME_KEY, null))
@@ -107,7 +91,7 @@ function Planner({ onLock, onToggleTheme }) {
   const [plans, setPlans] = useState(() => load(PLANS_KEY, []))
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
-  const [filter, setFilter] = useState('pending')
+  const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
 
   useEffect(() => save(PLANS_KEY, plans), [plans])
@@ -124,7 +108,7 @@ function Planner({ onLock, onToggleTheme }) {
       setEditingId(null)
     } else {
       setPlans(ps => [{ ...form, id: Date.now(), done: false }, ...ps])
-      setFilter(f => (f === 'done' ? 'pending' : f))
+      setFilter(f => (f === 'done' ? 'all' : f))
     }
     setForm(EMPTY_FORM)
   }
@@ -141,7 +125,8 @@ function Planner({ onLock, onToggleTheme }) {
   }
 
   function toggleDone(id) {
-    setPlans(ps => ps.map(p => (p.id === id ? { ...p, done: !p.done, doneAt: p.done ? null : Date.now() } : p)))
+    setPlans(ps => ps.map(p => (p.id === id ? { ...p, done: !p.done } : p)))
+    if (editingId === id) cancelEdit()
   }
 
   function remove(id) {
@@ -150,16 +135,9 @@ function Planner({ onLock, onToggleTheme }) {
     if (editingId === id) cancelEdit()
   }
 
-  function clearCompleted() {
-    if (!confirm('Remove all completed plans?')) return
-    setPlans(ps => ps.filter(p => !p.done))
-  }
-
   const total = plans.length
   const doneCount = plans.filter(p => p.done).length
-  const pendingCount = total - doneCount
-  const highCount = plans.filter(p => !p.done && p.priority === 'High').length
-  const percent = total ? Math.round((doneCount / total) * 100) : 0
+  const leftCount = total - doneCount
 
   const q = search.trim().toLowerCase()
   const visible = plans
@@ -169,37 +147,20 @@ function Planner({ onLock, onToggleTheme }) {
 
   return (
     <div className="app">
-      <header className="hero">
-        <div className="hero-inner">
-          <div className="topbar">
-            <span className="brand">📋 Today My Plan</span>
-            <div className="topbar-actions">
-              <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">◐</button>
-              <button className="icon-btn" onClick={onLock} title="Lock">🔒</button>
-            </div>
-          </div>
-          <h1>{greeting()} 👋</h1>
-          <p className="hero-date">
-            {new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
-
-          <div className="stats">
-            <Stat label="Total" value={total} />
-            <Stat label="Pending" value={pendingCount} />
-            <Stat label="High priority" value={highCount} />
-            <Stat label="Completed" value={doneCount} />
-          </div>
-
-          <div className="progress">
-            <div className="progress-bar" style={{ width: `${percent}%` }} />
-          </div>
-          <p className="progress-text">{percent}% of today's plan done</p>
+      <header className="topbar">
+        <span className="brand">📋 Today My Plan</span>
+        <div className="topbar-actions">
+          <span className="date">
+            {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+          </span>
+          <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">◐</button>
+          <button className="icon-btn" onClick={onLock} title="Lock">🔒</button>
         </div>
       </header>
 
       <main className="layout">
         <section className="panel form-panel">
-          <h2>{editingId ? '✏️ Edit Plan' : '➕ New Plan'}</h2>
+          <h2>{editingId ? 'Edit Plan' : 'Add Plan'}</h2>
           <form onSubmit={submit}>
             <label>
               Project / Person Name
@@ -247,98 +208,78 @@ function Planner({ onLock, onToggleTheme }) {
           </form>
         </section>
 
-        <section className="list-panel">
-          <div className="toolbar">
-            <div className="tabs">
-              {[
-                ['pending', `Pending (${pendingCount})`],
-                ['done', `Completed (${doneCount})`],
-                ['all', `All (${total})`],
-              ].map(([key, label]) => (
-                <button key={key} className={`tab ${filter === key ? 'active' : ''}`} onClick={() => setFilter(key)}>
-                  {label}
-                </button>
-              ))}
+        <section className="panel list-panel">
+          <div className="list-head">
+            <div className="counts">
+              <span className="count">Total <b>{total}</b></span>
+              <span className="count count-left">Left <b>{leftCount}</b></span>
+              <span className="count count-done">Done <b>{doneCount}</b></span>
             </div>
-            <input
-              className="search"
-              placeholder="🔍 Search plans..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+            <div className="list-tools">
+              <select value={filter} onChange={e => setFilter(e.target.value)}>
+                <option value="all">All</option>
+                <option value="pending">Left</option>
+                <option value="done">Done</option>
+              </select>
+              <input
+                className="search"
+                placeholder="Search..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
-          {visible.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon">{filter === 'done' ? '🎯' : '✨'}</div>
-              <p>
-                {q
-                  ? 'No plans match your search.'
-                  : filter === 'done'
-                    ? 'Nothing completed yet. You got this!'
-                    : 'No plans here. Add one to get started.'}
-              </p>
-            </div>
-          ) : (
-            <div className="plans">
-              {visible.map(p => (
-                <PlanItem
-                  key={p.id}
-                  plan={p}
-                  editing={editingId === p.id}
-                  onEdit={edit}
-                  onToggle={toggleDone}
-                  onDelete={remove}
-                />
-              ))}
-            </div>
-          )}
-
-          {filter !== 'pending' && doneCount > 0 && (
-            <button className="btn btn-ghost clear-btn" onClick={clearCompleted}>Clear completed</button>
-          )}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Project / Person</th>
+                  <th>Details</th>
+                  <th>Priority</th>
+                  <th>Remarks</th>
+                  <th>Status</th>
+                  <th className="right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="empty">
+                      {q ? 'No plans match your search.' : 'No plans yet. Add one from the form.'}
+                    </td>
+                  </tr>
+                ) : (
+                  visible.map((p, i) => (
+                    <tr key={p.id} className={`${p.done ? 'done' : ''} ${editingId === p.id ? 'editing' : ''}`}>
+                      <td className="muted">{i + 1}</td>
+                      <td className="name">{p.name}</td>
+                      <td className="wrap">{p.details || <span className="muted">—</span>}</td>
+                      <td><span className={`badge badge-${p.priority.toLowerCase()}`}>{p.priority}</span></td>
+                      <td className="wrap">{p.remarks || <span className="muted">—</span>}</td>
+                      <td>
+                        <span className={`status ${p.done ? 'status-done' : 'status-left'}`}>
+                          {p.done ? 'Completed' : 'Pending'}
+                        </span>
+                      </td>
+                      <td className="right">
+                        <div className="actions">
+                          <button className="action action-done" onClick={() => toggleDone(p.id)}>
+                            {p.done ? 'Undo' : 'Complete'}
+                          </button>
+                          {!p.done && <button className="action" onClick={() => edit(p)}>Edit</button>}
+                          <button className="action action-danger" onClick={() => remove(p.id)}>Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
     </div>
-  )
-}
-
-function Stat({ label, value }) {
-  return (
-    <div className="stat">
-      <span className="stat-value">{value}</span>
-      <span className="stat-label">{label}</span>
-    </div>
-  )
-}
-
-function PlanItem({ plan, editing, onEdit, onToggle, onDelete }) {
-  return (
-    <article className={`plan prio-${plan.priority.toLowerCase()} ${plan.done ? 'done' : ''} ${editing ? 'editing' : ''}`}>
-      <button
-        className={`check ${plan.done ? 'checked' : ''}`}
-        onClick={() => onToggle(plan.id)}
-        title={plan.done ? 'Mark as pending' : 'Mark as complete'}
-      >
-        {plan.done && '✓'}
-      </button>
-      <div className="plan-body">
-        <div className="plan-head">
-          <h3>{plan.name}</h3>
-          <span className={`badge badge-${plan.priority.toLowerCase()}`}>{plan.priority}</span>
-        </div>
-        {plan.details && <p className="plan-details">{plan.details}</p>}
-        {plan.remarks && <p className="plan-remarks">💬 {plan.remarks}</p>}
-        <div className="plan-foot">
-          <span className="plan-time">
-            {plan.done && plan.doneAt ? `Completed ${timeAgo(plan.doneAt)}` : `Added ${timeAgo(plan.id)}`}
-          </span>
-          <div className="plan-actions">
-            {!plan.done && <button className="action" onClick={() => onEdit(plan)}>Edit</button>}
-            <button className="action action-danger" onClick={() => onDelete(plan.id)}>Delete</button>
-          </div>
-        </div>
-      </div>
-    </article>
   )
 }
