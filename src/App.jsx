@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { UNIQUE_CODE } from './config.js'
+import { UNIQUE_CODE, AUTO_LOCK_MINUTES } from './config.js'
 
 const PLANS_KEY = 'myplan-plans'
 const AUTH_KEY = 'myplan-unlocked'
 const THEME_KEY = 'myplan-theme'
+const ACTIVITY_KEY = 'myplan-last-activity'
+const IDLE_MS = AUTO_LOCK_MINUTES * 60 * 1000
+const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']
 const EMPTY_FORM = { name: '', details: '', priority: 'Medium', remarks: '' }
 const PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
 
@@ -25,8 +28,41 @@ function save(key, value) {
 }
 
 export default function App() {
-  const [unlocked, setUnlocked] = useState(() => load(AUTH_KEY, false))
+  // Stay locked if the last activity (even from a closed tab) was too long ago
+  const [unlocked, setUnlocked] = useState(
+    () => load(AUTH_KEY, false) && Date.now() - load(ACTIVITY_KEY, 0) < IDLE_MS
+  )
   const [theme, setTheme] = useState(() => load(THEME_KEY, null))
+
+  useEffect(() => {
+    if (!unlocked) return
+    let last = Date.now()
+    let lastSaved = last
+    save(ACTIVITY_KEY, last)
+
+    function onActivity() {
+      last = Date.now()
+      // Only write to storage every few seconds, not on every mouse move
+      if (last - lastSaved > 5000) {
+        save(ACTIVITY_KEY, last)
+        lastSaved = last
+      }
+    }
+
+    // Compare timestamps instead of a single timer so sleep/background tabs still lock
+    const interval = setInterval(() => {
+      if (Date.now() - last >= IDLE_MS) {
+        save(AUTH_KEY, false)
+        setUnlocked(false)
+      }
+    }, 15000)
+
+    ACTIVITY_EVENTS.forEach(e => window.addEventListener(e, onActivity, { passive: true }))
+    return () => {
+      clearInterval(interval)
+      ACTIVITY_EVENTS.forEach(e => window.removeEventListener(e, onActivity))
+    }
+  }, [unlocked])
 
   useEffect(() => {
     if (theme) document.documentElement.dataset.theme = theme
@@ -91,7 +127,7 @@ function Planner({ onLock, onToggleTheme }) {
   const [plans, setPlans] = useState(() => load(PLANS_KEY, []))
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useState('pending')
   const [search, setSearch] = useState('')
 
   useEffect(() => save(PLANS_KEY, plans), [plans])
@@ -108,7 +144,7 @@ function Planner({ onLock, onToggleTheme }) {
       setEditingId(null)
     } else {
       setPlans(ps => [{ ...form, id: Date.now(), done: false }, ...ps])
-      setFilter(f => (f === 'done' ? 'all' : f))
+      setFilter(f => (f === 'done' ? 'pending' : f))
     }
     setForm(EMPTY_FORM)
   }
@@ -172,7 +208,7 @@ function Planner({ onLock, onToggleTheme }) {
               />
             </label>
             <label>
-              Details
+              Plan Details
               <textarea
                 rows="3"
                 placeholder="What type of work will you do?"
@@ -210,17 +246,22 @@ function Planner({ onLock, onToggleTheme }) {
 
         <section className="panel list-panel">
           <div className="list-head">
-            <div className="counts">
-              <span className="count">Total <b>{total}</b></span>
-              <span className="count count-left">Left <b>{leftCount}</b></span>
-              <span className="count count-done">Done <b>{doneCount}</b></span>
+            <div className="tabs">
+              {[
+                ['pending', 'Pending', leftCount],
+                ['done', 'Completed', doneCount],
+                ['all', 'All', total],
+              ].map(([key, label, count]) => (
+                <button
+                  key={key}
+                  className={`tab tab-${key} ${filter === key ? 'active' : ''}`}
+                  onClick={() => setFilter(key)}
+                >
+                  {label} <span className="tab-count">{count}</span>
+                </button>
+              ))}
             </div>
             <div className="list-tools">
-              <select value={filter} onChange={e => setFilter(e.target.value)}>
-                <option value="all">All</option>
-                <option value="pending">Left</option>
-                <option value="done">Done</option>
-              </select>
               <input
                 className="search"
                 placeholder="Search..."
@@ -230,53 +271,54 @@ function Planner({ onLock, onToggleTheme }) {
             </div>
           </div>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Project / Person</th>
-                  <th>Details</th>
-                  <th>Priority</th>
-                  <th>Remarks</th>
-                  <th>Status</th>
-                  <th className="right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.length === 0 ? (
-                  <tr>
-                    <td colSpan="7" className="empty">
-                      {q ? 'No plans match your search.' : 'No plans yet. Add one from the form.'}
-                    </td>
-                  </tr>
-                ) : (
-                  visible.map((p, i) => (
-                    <tr key={p.id} className={`${p.done ? 'done' : ''} ${editingId === p.id ? 'editing' : ''}`}>
-                      <td className="muted">{i + 1}</td>
-                      <td className="name">{p.name}</td>
-                      <td className="wrap">{p.details || <span className="muted">—</span>}</td>
-                      <td><span className={`badge badge-${p.priority.toLowerCase()}`}>{p.priority}</span></td>
-                      <td className="wrap">{p.remarks || <span className="muted">—</span>}</td>
-                      <td>
-                        <span className={`status ${p.done ? 'status-done' : 'status-left'}`}>
-                          {p.done ? 'Completed' : 'Pending'}
-                        </span>
-                      </td>
-                      <td className="right">
-                        <div className="actions">
-                          <button className="action action-done" onClick={() => toggleDone(p.id)}>
-                            {p.done ? 'Undo' : 'Complete'}
-                          </button>
-                          {!p.done && <button className="action" onClick={() => edit(p)}>Edit</button>}
-                          <button className="action action-danger" onClick={() => remove(p.id)}>Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="cards">
+            {visible.length === 0 ? (
+              <p className="empty">
+                {q ? 'No plans match your search.' : 'No plans yet. Add one from the form.'}
+              </p>
+            ) : (
+              visible.map(p => (
+                <article
+                  key={p.id}
+                  className={`card prio-${p.priority.toLowerCase()} ${p.done ? 'done' : ''} ${editingId === p.id ? 'editing' : ''}`}
+                >
+                  <div className="card-head">
+                    <div>
+                      <span className="field-label">Project / Person By :</span>
+                      <h3>{p.name}</h3>
+                    </div>
+                    <div className="tags">
+                      <span className={`badge badge-${p.priority.toLowerCase()}`}>{p.priority}</span>
+                      <span className={`status ${p.done ? 'status-done' : 'status-left'}`}>
+                        {p.done ? 'Completed' : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {p.details?.trim() && (
+                    <div className="field boxed">
+                      <span className="field-label">Plan Details</span>
+                      <p className="field-text">{p.details}</p>
+                    </div>
+                  )}
+
+                  {p.remarks?.trim() && (
+                    <div className="field boxed">
+                      <span className="field-label">Remarks</span>
+                      <p className="field-text">{p.remarks}</p>
+                    </div>
+                  )}
+
+                  <div className="card-foot">
+                    <button className={`action ${p.done ? 'action-done' : 'action-complete'}`} onClick={() => toggleDone(p.id)}>
+                      {p.done ? 'Undo' : '✓ Mark as Complete'}
+                    </button>
+                    {!p.done && <button className="action" onClick={() => edit(p)}>Edit</button>}
+                    <button className="action action-danger" onClick={() => remove(p.id)}>Delete</button>
+                  </div>
+                </article>
+              ))
+            )}
           </div>
         </section>
       </main>
