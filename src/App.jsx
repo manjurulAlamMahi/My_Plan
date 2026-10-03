@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { UNIQUE_CODE, AUTO_LOCK_MINUTES } from './config.js'
+import { AUTO_LOCK_MINUTES } from './config.js'
 
 const PLANS_KEY = 'myplan-plans'
 const AUTH_KEY = 'myplan-unlocked'
 const THEME_KEY = 'myplan-theme'
 const ACTIVITY_KEY = 'myplan-last-activity'
+const PIN_KEY = 'myplan-pin'
+const MIN_PIN = 4
 const IDLE_MS = AUTO_LOCK_MINUTES * 60 * 1000
 const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']
 const EMPTY_FORM = { name: '', details: '', priority: 'Medium', remarks: '' }
@@ -25,6 +27,24 @@ function save(key, value) {
   } catch {
     // storage unavailable; ignore
   }
+}
+
+// Store only a salted hash of the PIN, never the PIN itself
+async function hashPin(pin, salt) {
+  const data = new TextEncoder().encode(salt + ':' + pin)
+  if (!crypto?.subtle) return 'plain:' + btoa(salt + pin) // non-HTTPS fallback
+  const buf = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function setPin(pin) {
+  const salt = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('')
+  save(PIN_KEY, { salt, hash: await hashPin(pin, salt) })
+}
+
+async function checkPin(pin) {
+  const stored = load(PIN_KEY, null)
+  return !!stored && (await hashPin(pin, stored.salt)) === stored.hash
 }
 
 export default function App() {
@@ -90,34 +110,110 @@ export default function App() {
 }
 
 function Login({ onUnlock }) {
+  // 'setup' = first time on this PC, 'unlock' = PIN exists, 'forgot' = confirm reset
+  const [mode, setMode] = useState(() => (load(PIN_KEY, null) ? 'unlock' : 'setup'))
   const [code, setCode] = useState('')
-  const [error, setError] = useState(false)
+  const [confirmCode, setConfirmCode] = useState('')
+  const [error, setError] = useState('')
+  const [shake, setShake] = useState(false)
 
-  function submit(e) {
+  function fail(message) {
+    setError(message)
+    setShake(true)
+    setCode('')
+    setConfirmCode('')
+  }
+
+  function switchMode(next) {
+    setMode(next)
+    setError('')
+    setCode('')
+    setConfirmCode('')
+  }
+
+  async function submit(e) {
     e.preventDefault()
-    if (code === UNIQUE_CODE) onUnlock()
-    else {
-      setError(true)
-      setCode('')
+    if (mode === 'setup') {
+      if (code.length < MIN_PIN) return fail(`PIN must be at least ${MIN_PIN} characters`)
+      if (code !== confirmCode) return fail("PINs don't match, try again")
+      await setPin(code)
+      onUnlock()
+    } else if (await checkPin(code)) {
+      onUnlock()
+    } else {
+      fail('Wrong PIN, try again')
     }
   }
 
+  function resetEverything() {
+    try {
+      localStorage.removeItem(PLANS_KEY)
+      localStorage.removeItem(PIN_KEY)
+      localStorage.removeItem(AUTH_KEY)
+      localStorage.removeItem(ACTIVITY_KEY)
+    } catch {
+      // storage unavailable; ignore
+    }
+    switchMode('setup')
+  }
+
+  if (mode === 'forgot') {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <div className="logo">⚠️</div>
+          <h1>Forgot PIN?</h1>
+          <p className="muted">
+            Your PIN can't be recovered. Resetting will <strong>permanently delete all your plans</strong> on
+            this PC and let you set a new PIN.
+          </p>
+          <button type="button" className="btn btn-danger btn-block" onClick={resetEverything}>
+            Delete all data &amp; reset PIN
+          </button>
+          <button type="button" className="link-btn" onClick={() => switchMode('unlock')}>
+            ← Back, I remember it
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const isSetup = mode === 'setup'
+
   return (
     <div className="login-page">
-      <form className={`login-card ${error ? 'shake' : ''}`} onSubmit={submit} onAnimationEnd={() => setError(false)}>
+      <form className={`login-card ${shake ? 'shake' : ''}`} onSubmit={submit} onAnimationEnd={() => setShake(false)}>
         <div className="logo">📋</div>
-        <h1>Today My Plan</h1>
-        <p className="muted">Enter your unique code to continue</p>
+        <h1>TaskNest</h1>
+        <p className="muted">
+          {isSetup ? 'Create a PIN to protect your plans on this PC' : 'Enter your PIN to continue'}
+        </p>
         <input
           className="code-input"
           type="password"
-          placeholder="• • • •"
+          inputMode="numeric"
+          placeholder={isSetup ? 'New PIN' : '• • • •'}
           value={code}
           onChange={e => setCode(e.target.value)}
           autoFocus
         />
-        {error && <p className="error">Wrong code, try again</p>}
-        <button type="submit" className="btn btn-primary btn-block">Unlock</button>
+        {isSetup && (
+          <input
+            className="code-input"
+            type="password"
+            inputMode="numeric"
+            placeholder="Confirm PIN"
+            value={confirmCode}
+            onChange={e => setConfirmCode(e.target.value)}
+          />
+        )}
+        {error && <p className="error">{error}</p>}
+        <button type="submit" className="btn btn-primary btn-block">{isSetup ? 'Set PIN' : 'Unlock'}</button>
+        {!isSetup && (
+          <button type="button" className="link-btn" onClick={() => switchMode('forgot')}>
+            Forgot PIN?
+          </button>
+        )}
       </form>
     </div>
   )
@@ -129,6 +225,8 @@ function Planner({ onLock, onToggleTheme }) {
   const [editingId, setEditingId] = useState(null)
   const [filter, setFilter] = useState('pending')
   const [search, setSearch] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('All')
+  const [selected, setSelected] = useState(() => new Set())
 
   useEffect(() => save(PLANS_KEY, plans), [plans])
 
@@ -171,6 +269,32 @@ function Planner({ onLock, onToggleTheme }) {
     if (editingId === id) cancelEdit()
   }
 
+  function changeFilter(key) {
+    setFilter(key)
+    setSelected(new Set())
+  }
+
+  function toggleSelect(id) {
+    setSelected(s => {
+      const next = new Set(s)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function completeSelected() {
+    setPlans(ps => ps.map(p => (selected.has(p.id) ? { ...p, done: true } : p)))
+    if (selected.has(editingId)) cancelEdit()
+    setSelected(new Set())
+  }
+
+  function clearVisible() {
+    const ids = new Set(visible.map(p => p.id))
+    if (!confirm(`Delete ${ids.size} plan${ids.size === 1 ? '' : 's'}? This cannot be undone.`)) return
+    setPlans(ps => ps.filter(p => !ids.has(p.id)))
+    if (ids.has(editingId)) cancelEdit()
+  }
+
   const total = plans.length
   const doneCount = plans.filter(p => p.done).length
   const leftCount = total - doneCount
@@ -178,13 +302,22 @@ function Planner({ onLock, onToggleTheme }) {
   const q = search.trim().toLowerCase()
   const visible = plans
     .filter(p => (filter === 'all' ? true : filter === 'done' ? p.done : !p.done))
+    .filter(p => priorityFilter === 'All' || p.priority === priorityFilter)
     .filter(p => !q || [p.name, p.details, p.remarks].some(s => s?.toLowerCase().includes(q)))
     .sort((a, b) => a.done - b.done || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || b.id - a.id)
+
+  const selectable = filter === 'pending'
+  const selectedCount = visible.filter(p => selected.has(p.id)).length
+  const allSelected = visible.length > 0 && selectedCount === visible.length
+
+  function toggleSelectAll() {
+    setSelected(allSelected ? new Set() : new Set(visible.map(p => p.id)))
+  }
 
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">📋 Today My Plan</span>
+        <span className="brand">📋 TaskNest</span>
         <div className="topbar-actions">
           <span className="date">
             {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
@@ -255,7 +388,7 @@ function Planner({ onLock, onToggleTheme }) {
                 <button
                   key={key}
                   className={`tab tab-${key} ${filter === key ? 'active' : ''}`}
-                  onClick={() => setFilter(key)}
+                  onClick={() => changeFilter(key)}
                 >
                   {label} <span className="tab-count">{count}</span>
                 </button>
@@ -271,19 +404,63 @@ function Planner({ onLock, onToggleTheme }) {
             </div>
           </div>
 
+          <div className="list-bar">
+            <div className="prio-filter">
+              {['All', 'High', 'Medium', 'Low'].map(p => (
+                <button
+                  key={p}
+                  className={`pf pf-${p.toLowerCase()} ${priorityFilter === p ? 'active' : ''}`}
+                  onClick={() => setPriorityFilter(p)}
+                >
+                  {p !== 'All' && <span className="dot" />}
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            {selectable && visible.length > 0 && (
+              <div className="bulk">
+                <label className="check-all">
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+                  {selectedCount > 0 ? `${selectedCount} selected` : 'Select all'}
+                </label>
+                <button className="action action-complete" disabled={!selectedCount} onClick={completeSelected}>
+                  ✓ Mark as Completed{selectedCount > 0 && ` (${selectedCount})`}
+                </button>
+              </div>
+            )}
+
+            {filter === 'all' && visible.length > 0 && (
+              <div className="bulk">
+                <button className="action action-clear" onClick={clearVisible}>
+                  🗑 Clear All ({visible.length})
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="cards">
             {visible.length === 0 ? (
               <p className="empty">
-                {q ? 'No plans match your search.' : 'No plans yet. Add one from the form.'}
+                {q || priorityFilter !== 'All' ? 'No plans match your filters.' : 'No plans yet. Add one from the form.'}
               </p>
             ) : (
               visible.map(p => (
                 <article
                   key={p.id}
-                  className={`card prio-${p.priority.toLowerCase()} ${p.done ? 'done' : ''} ${editingId === p.id ? 'editing' : ''}`}
+                  className={`card prio-${p.priority.toLowerCase()} ${p.done ? 'done' : ''} ${editingId === p.id ? 'editing' : ''} ${selectable && selected.has(p.id) ? 'selected' : ''}`}
                 >
                   <div className="card-head">
-                    <div>
+                    {selectable && (
+                      <input
+                        type="checkbox"
+                        className="card-check"
+                        checked={selected.has(p.id)}
+                        onChange={() => toggleSelect(p.id)}
+                        title="Select"
+                      />
+                    )}
+                    <div className="card-title">
                       <span className="field-label">Project / Person By :</span>
                       <h3>{p.name}</h3>
                     </div>
