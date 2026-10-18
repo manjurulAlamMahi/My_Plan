@@ -1,5 +1,54 @@
 import { useEffect, useState } from 'react'
+import Swal from 'sweetalert2'
 import { AUTO_LOCK_MINUTES } from './config.js'
+
+function isDarkMode() {
+  return document.documentElement.dataset.theme === 'dark'
+}
+
+function showConfirmDialog({
+  title = 'Are you sure?',
+  text = '',
+  confirmButtonText = 'Yes, delete',
+  cancelButtonText = 'Cancel',
+  icon = 'warning',
+  confirmButtonColor = '#ef4444',
+}) {
+  const dark = isDarkMode()
+  return Swal.fire({
+    title,
+    text,
+    icon,
+    showCancelButton: true,
+    confirmButtonColor,
+    cancelButtonColor: dark ? '#475569' : '#94a3b8',
+    confirmButtonText,
+    cancelButtonText,
+    background: dark ? '#1e293b' : '#ffffff',
+    color: dark ? '#f1f5f9' : '#0f172a',
+    customClass: {
+      popup: 'sweet-theme-popup',
+      confirmButton: 'sweet-theme-confirm',
+      cancelButton: 'sweet-theme-cancel',
+    },
+    reverseButtons: true,
+  })
+}
+
+function showSuccessToast(title) {
+  const dark = isDarkMode()
+  return Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title,
+    showConfirmButton: false,
+    timer: 2000,
+    timerProgressBar: true,
+    background: dark ? '#1e293b' : '#ffffff',
+    color: dark ? '#f1f5f9' : '#0f172a',
+  })
+}
 
 // Storage Keys
 const PLANS_KEY = 'myplan-plans'
@@ -324,9 +373,18 @@ function Navbar({ currentNav, onSelectNav, theme, onToggleTheme, onLock, hasPin 
    Left: All List (Check box, Title, Edit, Delete)
    Right: Title (Nothing else)
    ========================================================================== */
+function formatUrl(url) {
+  if (!url) return ''
+  const trimmed = url.trim()
+  if (!trimmed) return ''
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
 function DailyTodoView() {
   const [todos, setTodos] = useState(loadInitialTodos)
   const [title, setTitle] = useState('')
+  const [link, setLink] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'pending' | 'completed'
   const [draggedId, setDraggedId] = useState(null)
@@ -371,10 +429,12 @@ function DailyTodoView() {
     e.preventDefault()
     if (!title.trim()) return
 
+    const formattedLink = formatUrl(link)
+
     if (editingId) {
       setTodos(prev =>
         prev.map(item =>
-          item.id === editingId ? { ...item, title: title.trim() } : item
+          item.id === editingId ? { ...item, title: title.trim(), link: formattedLink } : item
         )
       )
       setEditingId(null)
@@ -382,31 +442,41 @@ function DailyTodoView() {
       const newTodo = {
         id: Date.now(),
         title: title.trim(),
+        link: formattedLink,
         completed: false,
         completedDate: null,
         completedAt: null,
         createdAt: Date.now(),
       }
-      setTodos(prev => [newTodo, ...prev])
+      setTodos(prev => [...prev, newTodo])
     }
     setTitle('')
+    setLink('')
   }
 
   function startEdit(item) {
     setEditingId(item.id)
     setTitle(item.title)
+    setLink(item.link || '')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function cancelEdit() {
     setEditingId(null)
     setTitle('')
+    setLink('')
   }
 
-  function deleteTodo(id) {
-    if (!confirm('Delete this to-do?')) return
+  async function deleteTodo(id) {
+    const res = await showConfirmDialog({
+      title: 'Delete this to-do?',
+      text: 'This action cannot be undone.',
+      confirmButtonText: 'Yes, delete',
+    })
+    if (!res.isConfirmed) return
     setTodos(prev => prev.filter(item => item.id !== id))
     if (editingId === id) cancelEdit()
+    showSuccessToast('To-do deleted')
   }
 
   // Right-side action: Uncheck all at once
@@ -418,25 +488,44 @@ function DailyTodoView() {
           : item
       )
     )
+    showSuccessToast('All to-dos unchecked')
   }
 
   // Right-side action: Delete based on current status filter
-  function deleteTodosByStatus() {
+  async function deleteTodosByStatus() {
     if (statusFilter === 'pending') {
       if (pendingCount === 0) return
-      if (!confirm(`Delete all ${pendingCount} pending to-dos? This cannot be undone.`)) return
+      const res = await showConfirmDialog({
+        title: `Delete all ${pendingCount} pending to-dos?`,
+        text: 'This will permanently delete all pending to-dos.',
+        confirmButtonText: 'Yes, delete pending',
+      })
+      if (!res.isConfirmed) return
       setTodos(prev => prev.filter(t => t.completed))
       if (editingId) cancelEdit()
+      showSuccessToast('Pending to-dos deleted')
     } else if (statusFilter === 'completed') {
       if (completedCount === 0) return
-      if (!confirm(`Delete all ${completedCount} completed to-dos? This cannot be undone.`)) return
+      const res = await showConfirmDialog({
+        title: `Delete all ${completedCount} completed to-dos?`,
+        text: 'This will permanently delete all completed to-dos.',
+        confirmButtonText: 'Yes, delete completed',
+      })
+      if (!res.isConfirmed) return
       setTodos(prev => prev.filter(t => !t.completed))
       if (editingId) cancelEdit()
+      showSuccessToast('Completed to-dos deleted')
     } else {
       if (todos.length === 0) return
-      if (!confirm(`Delete all ${todos.length} to-dos? This cannot be undone.`)) return
+      const res = await showConfirmDialog({
+        title: `Delete all ${todos.length} to-dos?`,
+        text: 'This will permanently clear your to-do list.',
+        confirmButtonText: 'Yes, delete all',
+      })
+      if (!res.isConfirmed) return
       setTodos([])
       if (editingId) cancelEdit()
+      showSuccessToast('All to-dos deleted')
     }
   }
 
@@ -561,6 +650,25 @@ function DailyTodoView() {
                   {item.title}
                 </span>
 
+                {/* Go to Link (if provided) */}
+                {item.link && (
+                  <a
+                    href={item.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="todo-link-btn"
+                    title={`Open link: ${item.link}`}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                    <span>Go to Link ↗</span>
+                  </a>
+                )}
+
                 {/* Actions: Edit & Delete Icons (No text label) */}
                 <div className="todo-row-actions">
                   <button
@@ -599,7 +707,7 @@ function DailyTodoView() {
         <h2>{editingId ? 'Edit To-Do' : 'Add To-Do'}</h2>
         <form onSubmit={handleSubmit}>
           <label>
-            Title
+            Title <span className="req">*</span>
             <input
               type="text"
               placeholder="e.g. Do workout, Read book..."
@@ -607,6 +715,15 @@ function DailyTodoView() {
               onChange={e => setTitle(e.target.value)}
               required
               autoFocus
+            />
+          </label>
+          <label>
+            Go to Link (Optional)
+            <input
+              type="text"
+              placeholder="e.g. https://github.com or website link"
+              value={link}
+              onChange={e => setLink(e.target.value)}
             />
           </label>
           <div className="row">
@@ -790,39 +907,65 @@ function MyPlanView() {
     const now = Date.now()
     setPlans(ps => ps.map(p => (!p.done ? { ...p, done: true, doneAt: now } : p)))
     if (editingId) cancelEdit()
+    showSuccessToast('All pending tasks completed')
   }
 
   function undoAllCompleted() {
     if (doneCount === 0) return
     setPlans(ps => ps.map(p => (p.done ? { ...p, done: false, doneAt: null } : p)))
     if (editingId) cancelEdit()
+    showSuccessToast('Completed tasks restored to pending')
   }
 
-  function deletePending() {
+  async function deletePending() {
     if (leftCount === 0) return
-    if (!confirm(`Delete all ${leftCount} pending tasks? This cannot be undone.`)) return
+    const res = await showConfirmDialog({
+      title: `Delete all ${leftCount} pending tasks?`,
+      text: 'This will permanently delete all pending tasks.',
+      confirmButtonText: 'Yes, delete pending',
+    })
+    if (!res.isConfirmed) return
     setPlans(ps => ps.filter(p => p.done))
     if (editingId) cancelEdit()
+    showSuccessToast('Pending tasks deleted')
   }
 
-  function deleteCompleted() {
+  async function deleteCompleted() {
     if (doneCount === 0) return
-    if (!confirm(`Delete all ${doneCount} completed tasks? This cannot be undone.`)) return
+    const res = await showConfirmDialog({
+      title: `Delete all ${doneCount} completed tasks?`,
+      text: 'This will permanently delete all completed tasks.',
+      confirmButtonText: 'Yes, delete completed',
+    })
+    if (!res.isConfirmed) return
     setPlans(ps => ps.filter(p => !p.done))
     if (editingId) cancelEdit()
+    showSuccessToast('Completed tasks deleted')
   }
 
-  function deleteAll() {
+  async function deleteAll() {
     if (plans.length === 0) return
-    if (!confirm(`Delete all ${plans.length} tasks and plans? This cannot be undone.`)) return
+    const res = await showConfirmDialog({
+      title: `Delete all ${plans.length} tasks and plans?`,
+      text: 'This will permanently clear your entire tasks & plans board.',
+      confirmButtonText: 'Yes, delete all',
+    })
+    if (!res.isConfirmed) return
     setPlans([])
     if (editingId) cancelEdit()
+    showSuccessToast('All tasks & plans deleted')
   }
 
-  function remove(id) {
-    if (!confirm('Delete this task / plan?')) return
+  async function remove(id) {
+    const res = await showConfirmDialog({
+      title: 'Delete this task / plan?',
+      text: 'This action cannot be undone.',
+      confirmButtonText: 'Yes, delete',
+    })
+    if (!res.isConfirmed) return
     setPlans(ps => ps.filter(p => p.id !== id))
     if (editingId === id) cancelEdit()
+    showSuccessToast('Task deleted')
   }
 
   function changeFilter(key) {
@@ -843,13 +986,20 @@ function MyPlanView() {
     setPlans(ps => ps.map(p => (selected.has(p.id) ? { ...p, done: true, doneAt: now } : p)))
     if (selected.has(editingId)) cancelEdit()
     setSelected(new Set())
+    showSuccessToast('Selected tasks completed')
   }
 
-  function clearVisible() {
+  async function clearVisible() {
     const ids = new Set(visible.map(p => p.id))
-    if (!confirm(`Delete ${ids.size} plan${ids.size === 1 ? '' : 's'}? This cannot be undone.`)) return
+    const res = await showConfirmDialog({
+      title: `Delete ${ids.size} plan${ids.size === 1 ? '' : 's'}?`,
+      text: 'This cannot be undone.',
+      confirmButtonText: 'Yes, delete',
+    })
+    if (!res.isConfirmed) return
     setPlans(ps => ps.filter(p => !ids.has(p.id)))
     if (ids.has(editingId)) cancelEdit()
+    showSuccessToast('Plans deleted')
   }
 
   const total = plans.length
@@ -1303,12 +1453,17 @@ function LoginScreen({ onUnlock }) {
     }
   }
 
-  function resetEverything() {
-    if (confirm('Permanently remove PIN protection?')) {
-      localStorage.removeItem(PIN_KEY)
-      localStorage.removeItem(AUTH_KEY)
-      onUnlock()
-    }
+  async function resetEverything() {
+    const res = await showConfirmDialog({
+      title: 'Remove PIN Protection?',
+      text: 'Permanently remove PIN security from this device?',
+      confirmButtonText: 'Yes, remove PIN',
+    })
+    if (!res.isConfirmed) return
+    localStorage.removeItem(PIN_KEY)
+    localStorage.removeItem(AUTH_KEY)
+    onUnlock()
+    showSuccessToast('PIN protection removed')
   }
 
   return (
@@ -1361,12 +1516,20 @@ function PinModal({ hasPin, onClose, onSuccess }) {
     }
     await setPin(pin)
     save(AUTH_KEY, true)
+    showSuccessToast(hasPin ? 'PIN updated successfully' : 'PIN protection enabled')
     onSuccess()
   }
 
-  function handleRemove() {
+  async function handleRemove() {
+    const res = await showConfirmDialog({
+      title: 'Remove PIN protection?',
+      text: 'Anyone using this browser will be able to access TaskNest without a code.',
+      confirmButtonText: 'Yes, remove PIN',
+    })
+    if (!res.isConfirmed) return
     localStorage.removeItem(PIN_KEY)
     localStorage.removeItem(AUTH_KEY)
+    showSuccessToast('PIN protection removed')
     onSuccess()
   }
 

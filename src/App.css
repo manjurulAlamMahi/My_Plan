@@ -392,6 +392,40 @@ label {
   color: var(--muted);
 }
 
+/* Go to Link Button */
+.todo-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.todo-link-btn:hover {
+  background: var(--primary);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.todo-link-btn svg {
+  flex-shrink: 0;
+}
+
+.todo-row.done .todo-link-btn {
+  opacity: 0.75;
+}
+
 .todo-row-actions {
   display: flex;
   align-items: center;
@@ -1183,4 +1217,60 @@ input[type='checkbox'] {
   .nav-date {
     display: none;
   }
+}
+
+/* ==========================================================================
+   SWEETALERT2 THEME CUSTOMIZATION
+   ========================================================================== */
+.sweet-theme-popup {
+  border-radius: 18px !important;
+  font-family: inherit !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+  padding: 24px 20px !important;
+}
+
+.sweet-theme-popup .swal2-title {
+  font-size: 1.25rem !important;
+  font-weight: 800 !important;
+  color: var(--text) !important;
+  padding-top: 10px !important;
+}
+
+.sweet-theme-popup .swal2-html-container {
+  font-size: 0.92rem !important;
+  color: var(--muted) !important;
+  line-height: 1.5 !important;
+  margin-top: 8px !important;
+}
+
+.sweet-theme-confirm,
+.sweet-theme-cancel {
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  font-size: 0.88rem !important;
+  padding: 10px 22px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  box-shadow: none !important;
+}
+
+.sweet-theme-confirm:hover,
+.sweet-theme-cancel:hover {
+  transform: translateY(-1px) !important;
+  filter: brightness(1.05) !important;
+}
+
+.swal2-toast {
+  border-radius: 12px !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2) !important;
+  font-family: inherit !important;
+  padding: 10px 16px !important;
+}
+
+.swal2-toast .swal2-title {
+  font-size: 0.88rem !important;
+  font-weight: 700 !important;
+  color: var(--text) !important;
 }
