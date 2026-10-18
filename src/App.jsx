@@ -420,12 +420,24 @@ function DailyTodoView() {
     )
   }
 
-  // Right-side action: Delete all at once
-  function deleteAll() {
-    if (todos.length === 0) return
-    if (!confirm(`Delete all ${todos.length} to-dos? This cannot be undone.`)) return
-    setTodos([])
-    if (editingId) cancelEdit()
+  // Right-side action: Delete based on current status filter
+  function deleteTodosByStatus() {
+    if (statusFilter === 'pending') {
+      if (pendingCount === 0) return
+      if (!confirm(`Delete all ${pendingCount} pending to-dos? This cannot be undone.`)) return
+      setTodos(prev => prev.filter(t => t.completed))
+      if (editingId) cancelEdit()
+    } else if (statusFilter === 'completed') {
+      if (completedCount === 0) return
+      if (!confirm(`Delete all ${completedCount} completed to-dos? This cannot be undone.`)) return
+      setTodos(prev => prev.filter(t => !t.completed))
+      if (editingId) cancelEdit()
+    } else {
+      if (todos.length === 0) return
+      if (!confirm(`Delete all ${todos.length} to-dos? This cannot be undone.`)) return
+      setTodos([])
+      if (editingId) cancelEdit()
+    }
   }
 
   // Drag and drop reordering
@@ -655,28 +667,36 @@ function DailyTodoView() {
           </div>
         </div>
 
-        {/* Option: All Reset / Uncheck at once & Delete all at once */}
+        {/* Option: Status-Aware Quick Actions */}
         <div className="right-panel-section">
           <span className="right-section-title">Quick Actions</span>
           <div className="right-actions-list">
-            <button
-              type="button"
-              className="btn btn-ghost action-full-btn"
-              disabled={completedCount === 0}
-              onClick={uncheckAll}
-              title="Reset or uncheck all completed to-dos"
-            >
-              🔄 Uncheck All ({completedCount})
-            </button>
+            {(statusFilter === 'completed' || statusFilter === 'all') && (
+              <button
+                type="button"
+                className="btn btn-ghost action-full-btn"
+                disabled={completedCount === 0}
+                onClick={uncheckAll}
+                title="Reset or uncheck all completed to-dos"
+              >
+                🔄 Uncheck All ({completedCount})
+              </button>
+            )}
 
             <button
               type="button"
               className="btn btn-danger action-full-btn"
-              disabled={todos.length === 0}
-              onClick={deleteAll}
-              title="Delete all to-dos at once"
+              disabled={
+                statusFilter === 'pending'
+                  ? pendingCount === 0
+                  : statusFilter === 'completed'
+                  ? completedCount === 0
+                  : todos.length === 0
+              }
+              onClick={deleteTodosByStatus}
+              title={`Delete ${statusFilter === 'pending' ? 'pending' : statusFilter === 'completed' ? 'completed' : 'all'} to-dos`}
             >
-              🗑 Delete All ({todos.length})
+              🗑 Delete {statusFilter === 'pending' ? `Pending (${pendingCount})` : statusFilter === 'completed' ? `Completed (${completedCount})` : `All (${todos.length})`}
             </button>
           </div>
         </div>
@@ -772,6 +792,26 @@ function MyPlanView() {
     if (editingId) cancelEdit()
   }
 
+  function undoAllCompleted() {
+    if (doneCount === 0) return
+    setPlans(ps => ps.map(p => (p.done ? { ...p, done: false, doneAt: null } : p)))
+    if (editingId) cancelEdit()
+  }
+
+  function deletePending() {
+    if (leftCount === 0) return
+    if (!confirm(`Delete all ${leftCount} pending tasks? This cannot be undone.`)) return
+    setPlans(ps => ps.filter(p => p.done))
+    if (editingId) cancelEdit()
+  }
+
+  function deleteCompleted() {
+    if (doneCount === 0) return
+    if (!confirm(`Delete all ${doneCount} completed tasks? This cannot be undone.`)) return
+    setPlans(ps => ps.filter(p => !p.done))
+    if (editingId) cancelEdit()
+  }
+
   function deleteAll() {
     if (plans.length === 0) return
     if (!confirm(`Delete all ${plans.length} tasks and plans? This cannot be undone.`)) return
@@ -830,7 +870,7 @@ function MyPlanView() {
       (a, b) =>
         a.done - b.done ||
         (PRIORITY_ORDER[a.priority || 'Natural'] ?? 3) -
-          (PRIORITY_ORDER[b.priority || 'Natural'] ?? 3) ||
+        (PRIORITY_ORDER[b.priority || 'Natural'] ?? 3) ||
         b.id - a.id
     )
 
@@ -912,24 +952,94 @@ function MyPlanView() {
             </div>
 
             <div className="bulk">
-              <button
-                type="button"
-                className="action action-complete"
-                onClick={markAllAsCompleted}
-                disabled={leftCount === 0}
-                title="Mark all pending tasks as completed"
-              >
-                ✓ Mark All as Completed {leftCount > 0 ? `(${leftCount})` : ''}
-              </button>
-              <button
-                type="button"
-                className="action action-danger"
-                onClick={deleteAll}
-                disabled={plans.length === 0}
-                title="Delete all tasks and plans"
-              >
-                🗑 Delete All {plans.length > 0 ? `(${plans.length})` : ''}
-              </button>
+              {filter === 'pending' && (
+                <>
+                  <button
+                    type="button"
+                    className="action action-complete"
+                    onClick={markAllAsCompleted}
+                    disabled={leftCount === 0}
+                    title="Mark all pending tasks as completed"
+                  >
+                    ✓ Mark All as Completed {leftCount > 0 ? `(${leftCount})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    className="action action-danger"
+                    onClick={deletePending}
+                    disabled={leftCount === 0}
+                    title="Delete all pending tasks"
+                  >
+                    🗑 Delete Pending {leftCount > 0 ? `(${leftCount})` : ''}
+                  </button>
+                </>
+              )}
+
+              {filter === 'done' && (
+                <>
+                  <button
+                    type="button"
+                    className="action action-undo-btn"
+                    onClick={undoAllCompleted}
+                    disabled={doneCount === 0}
+                    title="Undo all completed tasks back to pending"
+                  >
+                    ↩ Undo All {doneCount > 0 ? `(${doneCount})` : ''}
+                  </button>
+                  <button
+                    type="button"
+                    className="action action-danger"
+                    onClick={deleteCompleted}
+                    disabled={doneCount === 0}
+                    title="Delete all completed tasks"
+                  >
+                    🗑 Delete Completed {doneCount > 0 ? `(${doneCount})` : ''}
+                  </button>
+                </>
+              )}
+
+              {filter === 'all' && (
+                <>
+                  {leftCount > 0 && (
+                    <button
+                      type="button"
+                      className="action action-complete"
+                      onClick={markAllAsCompleted}
+                      title="Mark all pending tasks as completed"
+                    >
+                      ✓ Mark All as Completed ({leftCount})
+                    </button>
+                  )}
+                  {doneCount > 0 && (
+                    <button
+                      type="button"
+                      className="action action-undo-btn"
+                      onClick={undoAllCompleted}
+                      title="Undo all completed tasks back to pending"
+                    >
+                      ↩ Undo All ({doneCount})
+                    </button>
+                  )}
+                  {total === 0 && (
+                    <button
+                      type="button"
+                      className="action action-complete"
+                      disabled
+                    >
+                      ✓ Mark All as Completed
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="action action-danger"
+                    onClick={deleteAll}
+                    disabled={total === 0}
+                    title="Delete all tasks and plans"
+                  >
+                    🗑 Delete All {total > 0 ? `(${total})` : ''}
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
