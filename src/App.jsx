@@ -1,5 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Swal from 'sweetalert2'
+import {
+  Check,
+  CheckCheck,
+  CircleUserRound,
+  Hourglass,
+  MoreHorizontal,
+  PencilLine,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { AUTO_LOCK_MINUTES } from './config.js'
 
 function isDarkMode() {
@@ -678,10 +691,7 @@ function DailyTodoView() {
                     title="Edit"
                     aria-label="Edit to-do"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
+                    <PencilLine size={15} />
                   </button>
                   <button
                     type="button"
@@ -690,10 +700,7 @@ function DailyTodoView() {
                     title="Delete"
                     aria-label="Delete to-do"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    </svg>
+                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>
@@ -825,6 +832,10 @@ function DailyTodoView() {
 /* ==========================================================================
    MY TASK & PLAN (Original Planning Module)
    ========================================================================== */
+function hasResponsible(p) {
+  return !!(p.responsiblePerson || p.remarks)?.trim()
+}
+
 function MyPlanView() {
   const [plans, setPlans] = useState(loadInitialPlans)
   const [form, setForm] = useState(EMPTY_PLAN_FORM)
@@ -832,6 +843,10 @@ function MyPlanView() {
   const [filter, setFilter] = useState('pending')
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('All')
+  const [personFilter, setPersonFilter] = useState('all') // 'all' | 'assigned' | 'unassigned'
+  const [showFilters, setShowFilters] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
   const [selected, setSelected] = useState(() => new Set())
   const [nowTime, setNowTime] = useState(Date.now())
 
@@ -1002,14 +1017,41 @@ function MyPlanView() {
     showSuccessToast('Plans deleted')
   }
 
+  // Close the bulk-actions menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    function onDown(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [menuOpen])
+
+  function runMenuAction(fn) {
+    setMenuOpen(false)
+    fn()
+  }
+
   const total = plans.length
   const doneCount = plans.filter(p => p.done).length
   const leftCount = total - doneCount
+  const activeFilterCount = (priorityFilter !== 'All' ? 1 : 0) + (personFilter !== 'all' ? 1 : 0)
+
+  // Counts for the responsible-person filter, scoped to the current status tab
+  const inStatus = plans.filter(p => (filter === 'all' ? true : filter === 'done' ? p.done : !p.done))
+  const assignedCount = inStatus.filter(hasResponsible).length
+  const unassignedCount = inStatus.length - assignedCount
+
+  function clearFilters() {
+    setPriorityFilter('All')
+    setPersonFilter('all')
+  }
 
   const q = search.trim().toLowerCase()
   const visible = plans
     .filter(p => (filter === 'all' ? true : filter === 'done' ? p.done : !p.done))
     .filter(p => priorityFilter === 'All' || (p.priority || 'Natural') === priorityFilter)
+    .filter(p => personFilter === 'all' || (personFilter === 'assigned') === hasResponsible(p))
     .filter(p =>
       !q ||
       [p.title, p.name, p.details, p.responsiblePerson, p.remarks].some(s =>
@@ -1055,13 +1097,31 @@ function MyPlanView() {
     }
   })()
 
+  const bulkActions = [
+    leftCount > 0 && filter !== 'done' && {
+      key: 'complete', label: `Mark all as completed (${leftCount})`, icon: CheckCheck, onClick: markAllAsCompleted,
+    },
+    doneCount > 0 && filter !== 'pending' && {
+      key: 'undo', label: `Undo all completed (${doneCount})`, icon: RotateCcw, onClick: undoAllCompleted,
+    },
+    filter === 'pending' && leftCount > 0 && {
+      key: 'del-pending', label: `Delete pending (${leftCount})`, icon: Trash2, onClick: deletePending, danger: true,
+    },
+    filter === 'done' && doneCount > 0 && {
+      key: 'del-done', label: `Delete completed (${doneCount})`, icon: Trash2, onClick: deleteCompleted, danger: true,
+    },
+    filter === 'all' && total > 0 && {
+      key: 'del-all', label: `Delete all (${total})`, icon: Trash2, onClick: deleteAll, danger: true,
+    },
+  ].filter(Boolean)
+
   return (
     <div className="planner-container">
       {/* 2-Column Layout matching To-Do: Left Lists, Right Add Form */}
       <main className="layout">
-        {/* LEFT SIDE: All Lists (Tabs, Search, Priority Filter, Cards) */}
+        {/* LEFT SIDE: Compact toolbar + task list */}
         <section className="panel list-panel">
-          <div className="list-head">
+          <div className="plan-toolbar">
             <div className="tabs">
               {[
                 ['pending', 'Pending', leftCount],
@@ -1077,148 +1137,129 @@ function MyPlanView() {
                 </button>
               ))}
             </div>
-            <div className="list-tools">
-              <input
-                className="search"
-                placeholder="Search tasks & plans..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-          </div>
 
-          <div className="list-bar">
-            <div className="prio-filter">
-              {['All', 'Natural', 'Medium', 'High', 'Critical'].map(p => (
+            <div className="plan-toolbar-right">
+              <div className="search-wrap">
+                <Search size={14} className="search-icon" />
+                <input
+                  className="search"
+                  placeholder="Search..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+
+              <button
+                type="button"
+                className={`tool-btn ${showFilters || activeFilterCount > 0 ? 'active' : ''}`}
+                onClick={() => setShowFilters(s => !s)}
+                title="Show filters"
+              >
+                <SlidersHorizontal size={14} />
+                <span>Filters</span>
+                {activeFilterCount > 0 && <span className="tool-btn-count">{activeFilterCount}</span>}
+              </button>
+
+              <div className="menu-wrap" ref={menuRef}>
                 <button
-                  key={p}
-                  className={`pf pf-${p.toLowerCase()} ${priorityFilter === p ? 'active' : ''}`}
-                  onClick={() => setPriorityFilter(p)}
+                  type="button"
+                  className={`tool-btn icon-only ${menuOpen ? 'active' : ''}`}
+                  onClick={() => setMenuOpen(o => !o)}
+                  title="Bulk actions"
+                  aria-label="Bulk actions"
                 >
-                  {p !== 'All' && <span className="dot" />}
-                  {p}
+                  <MoreHorizontal size={16} />
                 </button>
-              ))}
-            </div>
-
-            <div className="bulk">
-              {filter === 'pending' && (
-                <>
-                  <button
-                    type="button"
-                    className="action action-complete"
-                    onClick={markAllAsCompleted}
-                    disabled={leftCount === 0}
-                    title="Mark all pending tasks as completed"
-                  >
-                    ✓ Mark All as Completed {leftCount > 0 ? `(${leftCount})` : ''}
-                  </button>
-                  <button
-                    type="button"
-                    className="action action-danger"
-                    onClick={deletePending}
-                    disabled={leftCount === 0}
-                    title="Delete all pending tasks"
-                  >
-                    🗑 Delete Pending {leftCount > 0 ? `(${leftCount})` : ''}
-                  </button>
-                </>
-              )}
-
-              {filter === 'done' && (
-                <>
-                  <button
-                    type="button"
-                    className="action action-undo-btn"
-                    onClick={undoAllCompleted}
-                    disabled={doneCount === 0}
-                    title="Undo all completed tasks back to pending"
-                  >
-                    ↩ Undo All {doneCount > 0 ? `(${doneCount})` : ''}
-                  </button>
-                  <button
-                    type="button"
-                    className="action action-danger"
-                    onClick={deleteCompleted}
-                    disabled={doneCount === 0}
-                    title="Delete all completed tasks"
-                  >
-                    🗑 Delete Completed {doneCount > 0 ? `(${doneCount})` : ''}
-                  </button>
-                </>
-              )}
-
-              {filter === 'all' && (
-                <>
-                  {leftCount > 0 && (
-                    <button
-                      type="button"
-                      className="action action-complete"
-                      onClick={markAllAsCompleted}
-                      title="Mark all pending tasks as completed"
-                    >
-                      ✓ Mark All as Completed ({leftCount})
-                    </button>
-                  )}
-                  {doneCount > 0 && (
-                    <button
-                      type="button"
-                      className="action action-undo-btn"
-                      onClick={undoAllCompleted}
-                      title="Undo all completed tasks back to pending"
-                    >
-                      ↩ Undo All ({doneCount})
-                    </button>
-                  )}
-                  {total === 0 && (
-                    <button
-                      type="button"
-                      className="action action-complete"
-                      disabled
-                    >
-                      ✓ Mark All as Completed
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="action action-danger"
-                    onClick={deleteAll}
-                    disabled={total === 0}
-                    title="Delete all tasks and plans"
-                  >
-                    🗑 Delete All {total > 0 ? `(${total})` : ''}
-                  </button>
-                </>
-              )}
+                {menuOpen && (
+                  <div className="menu-pop">
+                    {bulkActions.length === 0 ? (
+                      <span className="menu-empty">No actions available</span>
+                    ) : (
+                      bulkActions.map(({ key, label, icon: Icon, onClick, danger }) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={`menu-item ${danger ? 'danger' : ''}`}
+                          onClick={() => runMenuAction(onClick)}
+                        >
+                          <Icon size={14} />
+                          {label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Collapsible filters: Priority + Responsible Person */}
+          {showFilters && (
+            <div className="filter-row">
+              <div className="filter-group">
+                <span className="filter-label">Priority</span>
+                {['All', 'Natural', 'Medium', 'High', 'Critical'].map(p => (
+                  <button
+                    key={p}
+                    className={`pf pf-${p.toLowerCase()} ${priorityFilter === p ? 'active' : ''}`}
+                    onClick={() => setPriorityFilter(p)}
+                  >
+                    {p !== 'All' && <span className="dot" />}
+                    {p}
+                  </button>
+                ))}
+              </div>
+
+              <div className="filter-group">
+                <span className="filter-label">Responsible</span>
+                {[
+                  ['all', 'All', inStatus.length],
+                  ['assigned', 'Assigned', assignedCount],
+                  ['unassigned', 'Unassigned', unassignedCount],
+                ].map(([key, label, count]) => (
+                  <button
+                    key={key}
+                    className={`pf pf-person ${personFilter === key ? 'active' : ''}`}
+                    onClick={() => setPersonFilter(key)}
+                  >
+                    {label} <span className="pf-count">{count}</span>
+                  </button>
+                ))}
+              </div>
+
+              {activeFilterCount > 0 && (
+                <button type="button" className="filter-clear" onClick={clearFilters}>
+                  <X size={12} /> Clear
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="cards">
             {visible.length === 0 ? (
               <p className="empty">
-                {q || priorityFilter !== 'All' ? 'No tasks match your filters.' : 'No tasks yet. Add one from the form on the right 👉'}
+                {q || activeFilterCount > 0 ? 'No tasks match your filters.' : 'No tasks yet. Add one from the form on the right 👉'}
               </p>
             ) : (
               visible.map(p => {
                 const itemPriority = p.priority || 'Natural'
                 const itemTitle = p.title || p.name || 'Untitled Task'
-                const itemResponsible = p.responsiblePerson || p.remarks
+                const itemResponsible = (p.responsiblePerson || p.remarks)?.trim()
 
                 return (
                   <article
                     key={p.id}
                     className={`card prio-${itemPriority.toLowerCase()} ${p.done ? 'done' : ''} ${editingId === p.id ? 'editing' : ''}`}
                   >
-                    {/* Top Row: Check Box | Title | Highlight Responsive Person */}
-                    <div className="card-top-row">
-                      <input
-                        type="checkbox"
-                        className="card-checkbox"
-                        checked={p.done}
-                        onChange={() => toggleDone(p.id)}
-                        title={p.done ? 'Click to unmark' : 'Click to mark complete'}
-                      />
+                    <input
+                      type="checkbox"
+                      className="card-checkbox"
+                      checked={p.done}
+                      onChange={() => toggleDone(p.id)}
+                      title={p.done ? 'Click to unmark' : 'Click to mark complete'}
+                    />
 
+                    <div className="card-body">
                       <h3
                         className={`card-main-title ${p.done ? 'strikethrough' : ''}`}
                         onClick={() => toggleDone(p.id)}
@@ -1227,82 +1268,69 @@ function MyPlanView() {
                         {itemTitle}
                       </h3>
 
-                      {itemResponsible?.trim() && (
-                        <div className="responsive-person-highlight" title="Responsible Person">
-                          <span className="person-avatar-icon">👤</span>
-                          <span className="person-name-text">{itemResponsible}</span>
-                        </div>
-                      )}
-                    </div>
+                      {p.details?.trim() && <p className="details-text">{p.details}</p>}
 
-                    {/* Middle: Details In Highlight */}
-                    {p.details?.trim() && (
-                      <div className="details-highlight-box">
-                        <p className="details-text">{p.details}</p>
-                      </div>
-                    )}
-
-                    {/* Bottom Row: Badge Priority | Mark As Complete | Edit & Delete (or Undo if completed) */}
-                    <div className="card-bottom-row">
-                      <div className="bottom-left-group">
-                        <span className={`badge badge-${itemPriority.toLowerCase()}`}>
+                      <div className="card-meta">
+                        <span className={`meta-prio meta-${itemPriority.toLowerCase()}`}>
+                          <span className="dot" />
                           {itemPriority}
                         </span>
-                        {p.done ? (
-                          <span className="status status-done">✓ Completed</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="action action-complete"
-                            onClick={() => toggleDone(p.id)}
-                          >
-                            Mark as Complete
-                          </button>
+                        {itemResponsible && (
+                          <span className="meta-person" title="Responsible person">
+                            <CircleUserRound size={13} />
+                            {itemResponsible}
+                          </span>
+                        )}
+                        {p.done && (
+                          <span className="meta-done">
+                            <Check size={12} /> Completed
+                          </span>
                         )}
                       </div>
+                    </div>
 
-                      <div className="bottom-actions-group">
-                        {p.done ? (
-                          /* In completed tasks: no edit or delete, replaced with Undo */
+                    <div className="card-actions">
+                      {p.done ? (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => toggleDone(p.id)}
+                          title="Undo – move back to pending"
+                          aria-label="Undo completed task"
+                        >
+                          <RotateCcw size={15} />
+                        </button>
+                      ) : (
+                        <>
                           <button
                             type="button"
-                            className="action action-undo-btn"
+                            className="icon-btn complete"
                             onClick={() => toggleDone(p.id)}
-                            title="Undo completed task"
+                            title="Mark as complete"
+                            aria-label="Mark as complete"
                           >
-                            ↩ Undo
+                            <Check size={15} />
                           </button>
-                        ) : (
-                          /* In pending tasks: Edit Icon & Delete Icon */
-                          <>
-                            <button
-                              type="button"
-                              className="action-icon-btn edit-btn"
-                              onClick={() => edit(p)}
-                              title="Edit"
-                              aria-label="Edit task / plan"
-                            >
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                            </button>
-
-                            <button
-                              type="button"
-                              className="action-icon-btn delete-btn"
-                              onClick={() => remove(p.id)}
-                              title="Delete"
-                              aria-label="Delete task / plan"
-                            >
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="3 6 5 6 21 6" />
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => edit(p)}
+                            title="Edit"
+                            aria-label="Edit task / plan"
+                          >
+                            <PencilLine size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn danger"
+                            onClick={() => remove(p.id)}
+                            title="Delete"
+                            aria-label="Delete task / plan"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </article>
                 )
@@ -1311,123 +1339,104 @@ function MyPlanView() {
           </div>
         </section>
 
-        {/* RIGHT SIDE: Add Task / Plan Form */}
-        <aside className="panel form-panel">
-          <h2>{editingId ? 'Edit Task / Plan' : 'Add Task / Plan'}</h2>
-          <form onSubmit={submit}>
-            {/* 1. Priority (Natural, Medium, High, Critical) - Default: Natural */}
-            <label>Priority</label>
-            <div className="priority-picker">
-              {['Natural', 'Medium', 'High', 'Critical'].map(p => (
-                <button
-                  type="button"
-                  key={p}
-                  className={`chip chip-${p.toLowerCase()} ${form.priority === p ? 'active' : ''}`}
-                  onClick={() => update('priority', p)}
-                >
-                  {p}
+        {/* RIGHT SIDE: Form card, with the weekly cleanup notice as its own card below */}
+        <div className="side-col">
+          <aside className="panel form-panel">
+            <h2>{editingId ? 'Edit Task / Plan' : 'Add Task / Plan'}</h2>
+            <form onSubmit={submit}>
+              {/* 1. Priority (Natural, Medium, High, Critical) - Default: Natural */}
+              <label>Priority</label>
+              <div className="priority-picker">
+                {['Natural', 'Medium', 'High', 'Critical'].map(p => (
+                  <button
+                    type="button"
+                    key={p}
+                    className={`chip chip-${p.toLowerCase()} ${form.priority === p ? 'active' : ''}`}
+                    onClick={() => update('priority', p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+
+              {/* 2. Task / Plan Title */}
+              <label>
+                Task / Plan Title <span className="req">*</span>
+                <input
+                  placeholder="e.g. Website redesign or sprint goal"
+                  value={form.title}
+                  onChange={e => update('title', e.target.value)}
+                  required
+                  autoFocus={!editingId}
+                />
+              </label>
+
+              {/* 3. Plan Details */}
+              <label>
+                Plan Details
+                <textarea
+                  rows="3"
+                  placeholder="What type of work will you do?"
+                  value={form.details}
+                  onChange={e => update('details', e.target.value)}
+                />
+              </label>
+
+              {/* 4. Responsible Person (Optional) */}
+              <label>
+                Responsible Person (Optional)
+                <input
+                  placeholder="e.g. John, Sarah, or Me"
+                  value={form.responsiblePerson}
+                  onChange={e => update('responsiblePerson', e.target.value)}
+                />
+              </label>
+
+              <div className="row form-action-row-right">
+                {editingId && (
+                  <button type="button" className="btn btn-ghost" onClick={cancelEdit}>
+                    Cancel
+                  </button>
+                )}
+                <button type="submit" className="btn btn-primary">
+                  {editingId ? 'Update Task / Plan' : 'Add Task / Plan'}
                 </button>
-              ))}
-            </div>
+              </div>
+            </form>
+          </aside>
 
-            {/* 2. Task / Plan Title */}
-            <label>
-              Task / Plan Title <span className="req">*</span>
-              <input
-                placeholder="e.g. Website redesign or sprint goal"
-                value={form.title}
-                onChange={e => update('title', e.target.value)}
-                required
-                autoFocus={!editingId}
-              />
-            </label>
-
-            {/* 3. Plan Details */}
-            <label>
-              Plan Details
-              <textarea
-                rows="3"
-                placeholder="What type of work will you do?"
-                value={form.details}
-                onChange={e => update('details', e.target.value)}
-              />
-            </label>
-
-            {/* 4. Responsible Person (Optional) */}
-            <label>
-              Responsible Person (Optional)
-              <input
-                placeholder="e.g. John, Sarah, or Me"
-                value={form.responsiblePerson}
-                onChange={e => update('responsiblePerson', e.target.value)}
-              />
-            </label>
-
-            <div className="row form-action-row-right">
-              {editingId && (
-                <button type="button" className="btn btn-ghost" onClick={cancelEdit}>
-                  Cancel
-                </button>
-              )}
-              <button type="submit" className="btn btn-primary">
-                {editingId ? 'Update Task / Plan' : 'Add Task / Plan'}
-              </button>
-            </div>
-          </form>
-
-          {/* Right Side Bottom: Alert Card for Thursday 11:59 PM Auto-Cleanup */}
-          <div className="weekly-alert-card">
+          {/* Weekly Auto-Cleanup Notice (Thursday 11:59 PM) */}
+          <div className="panel weekly-alert-card">
             <div className="weekly-alert-header">
-              <span className="weekly-alert-icon">⚠️</span>
-              <div className="weekly-alert-title-wrap">
-                <strong className="weekly-alert-title">Completed Tasks Notice</strong>
-                <span className="weekly-alert-badge">Thursday 11:59 PM</span>
-              </div>
+              <Hourglass size={14} className="weekly-alert-icon" />
+              <strong className="weekly-alert-title">Weekly auto-cleanup</strong>
+              <span className="weekly-alert-badge">Thu 11:59 PM</span>
             </div>
 
-            {/* Auto-Cleanup Live Countdown */}
-            <div className="cleanup-countdown-box">
-              <div className="cleanup-countdown-header">
-                <span className="cleanup-clock-icon">⏳</span>
-                <span className="cleanup-countdown-label">Auto Cleanup Countdown</span>
-              </div>
-              <div className="cleanup-countdown-digits">
-                <div className="countdown-time-unit">
-                  <span className="unit-number">{thursdayCountdown.days}</span>
-                  <span className="unit-label">DAYS</span>
-                </div>
-                <span className="unit-colon">:</span>
-                <div className="countdown-time-unit">
-                  <span className="unit-number">{String(thursdayCountdown.hours).padStart(2, '0')}</span>
-                  <span className="unit-label">HRS</span>
-                </div>
-                <span className="unit-colon">:</span>
-                <div className="countdown-time-unit">
-                  <span className="unit-number">{String(thursdayCountdown.mins).padStart(2, '0')}</span>
-                  <span className="unit-label">MIN</span>
-                </div>
-                <span className="unit-colon">:</span>
-                <div className="countdown-time-unit">
-                  <span className="unit-number">{String(thursdayCountdown.secs).padStart(2, '0')}</span>
-                  <span className="unit-label">SEC</span>
-                </div>
-              </div>
-              <div className="cleanup-countdown-target">
-                Next cleanup: <strong>Thursday ({thursdayCountdown.targetDateFormatted}) at 11:59 PM</strong>
-              </div>
+            <div className="cleanup-countdown-digits">
+              {[
+                [thursdayCountdown.days, 'd'],
+                [String(thursdayCountdown.hours).padStart(2, '0'), 'h'],
+                [String(thursdayCountdown.mins).padStart(2, '0'), 'm'],
+                [String(thursdayCountdown.secs).padStart(2, '0'), 's'],
+              ].map(([value, unit]) => (
+                <span key={unit} className="countdown-time-unit">
+                  <span className="unit-number">{value}</span>
+                  <span className="unit-label">{unit}</span>
+                </span>
+              ))}
+              <span className="cleanup-countdown-target">until {thursdayCountdown.targetDateFormatted}</span>
             </div>
 
             <p className="weekly-alert-text">
-              <strong>Alert:</strong> Every Thursday at 11:59 PM, completed tasks will disappear! Make sure your completed tasks are done; if needed, undo them to complete task before they disappear.
+              Completed tasks disappear every Thursday at 11:59 PM. Undo a task anytime before then to keep it.
             </p>
             <div className="weekly-alert-footer">
-              <span className="weekly-alert-pill">
-                🗑 {doneCount} completed task{doneCount === 1 ? '' : 's'} scheduled to disappear
-              </span>
-              <span className="weekly-alert-undo-hint">💡 Undo anytime to keep task active</span>
+              <Trash2 size={12} />
+              {doneCount} completed task{doneCount === 1 ? '' : 's'} scheduled to disappear
             </div>
           </div>
-        </aside>
+        </div>
       </main>
     </div>
   )
