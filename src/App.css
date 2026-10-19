@@ -307,25 +307,11 @@ label {
   font-weight: 800;
 }
 
-.todo-form-panel {
-  position: sticky;
-  top: 16px;
-}
-
 /* ==========================================================================
    SIMPLE TO-DO LIST (Left List: Check, Title, Edit, Delete | Right: Title)
    ========================================================================== */
-.todo-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
 .todo-count-badge {
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   font-weight: 700;
   color: var(--muted);
   background: var(--surface-2);
@@ -334,10 +320,13 @@ label {
   border: 1px solid var(--border);
 }
 
+.todo-list-panel { padding: 0; }
+
 .todo-items-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 12px 14px 14px;
 }
 
 .todo-row {
@@ -401,7 +390,7 @@ label {
   color: var(--primary);
   border: 1px solid var(--primary);
   border-radius: 99px;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
@@ -489,138 +478,19 @@ label {
   transform: translateY(-2px);
 }
 
-/* Right Side Sections */
-.right-panel-section {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.right-section-title {
-  font-size: 0.76rem;
-  font-weight: 800;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-/* Status Filter Buttons */
-.right-filter-group {
-  display: flex;
-  gap: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 3px;
-}
-
-.right-filter-chip {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 4px;
-  border-radius: 7px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--muted);
-  transition: all 0.15s ease;
-}
-
-.right-filter-chip:hover {
-  color: var(--text);
-}
-
-.right-filter-chip.active {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
-}
-
-.chip-count {
-  font-size: 0.72rem;
-  padding: 1px 6px;
-  border-radius: 99px;
-  background: var(--border);
-  color: var(--text);
-  font-weight: 800;
-}
-
-.chip-amber { background: var(--medium-soft); color: var(--medium); }
-.chip-green { background: var(--low-soft); color: var(--low); }
-
-/* Auto Reset Countdown Card */
-.countdown-card {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.countdown-clock-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.clock-icon {
-  font-size: 1.1rem;
-}
-
-.countdown-digits {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--primary);
-  letter-spacing: 0.05em;
-}
-
-.countdown-hint {
-  font-size: 0.74rem;
-  color: var(--muted);
-  line-height: 1.35;
-  margin-top: 2px;
-}
-
-/* Action Buttons */
-.right-actions-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.action-full-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 0.84rem;
-}
-
-.action-full-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  filter: none;
-}
-
 /* ==========================================================================
    MY TASK & PLAN
    ========================================================================== */
-/* Slightly tighter type scale for this view */
-.planner-container .panel h2 { font-size: 0.95rem; margin-bottom: 12px; }
-.planner-container label { font-size: 0.74rem; margin-bottom: 10px; }
-.planner-container input,
-.planner-container textarea { font-size: 0.85rem; padding: 8px 11px; }
-.planner-container .btn { font-size: 0.84rem; padding: 8px 16px; }
+/* Slightly tighter type scale, shared by both views */
+.planner-container .panel h2,
+.todo-layout .panel h2 { font-size: 0.95rem; margin-bottom: 12px; }
+.planner-container label,
+.todo-layout label { font-size: 0.74rem; margin-bottom: 10px; }
+.planner-container input:not([type='checkbox']),
+.planner-container textarea,
+.todo-layout input:not([type='checkbox']) { font-size: 0.85rem; padding: 8px 11px; }
+.planner-container .btn,
+.todo-layout .btn { font-size: 0.84rem; padding: 8px 16px; }
 
 .side-col {
   position: sticky;
@@ -702,7 +572,7 @@ label {
   color: var(--muted);
   pointer-events: none;
 }
-.planner-container .search {
+.planner-container input.search {
   width: 180px;
   margin: 0;
   padding: 6px 10px 6px 28px;

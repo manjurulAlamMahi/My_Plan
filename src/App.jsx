@@ -394,6 +394,57 @@ function formatUrl(url) {
   return `https://${trimmed}`
 }
 
+// "⋯" dropdown for bulk actions, shared by both views
+function BulkMenu({ actions }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  return (
+    <div className="menu-wrap" ref={ref}>
+      <button
+        type="button"
+        className={`tool-btn icon-only ${open ? 'active' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        title="Bulk actions"
+        aria-label="Bulk actions"
+      >
+        <MoreHorizontal size={16} />
+      </button>
+      {open && (
+        <div className="menu-pop">
+          {actions.length === 0 ? (
+            <span className="menu-empty">No actions available</span>
+          ) : (
+            actions.map(({ key, label, icon: Icon, onClick, danger }) => (
+              <button
+                key={key}
+                type="button"
+                className={`menu-item ${danger ? 'danger' : ''}`}
+                onClick={() => {
+                  setOpen(false)
+                  onClick()
+                }}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DailyTodoView() {
   const [todos, setTodos] = useState(loadInitialTodos)
   const [title, setTitle] = useState('')
@@ -601,18 +652,52 @@ function DailyTodoView() {
     const hours = Math.floor(diff / 3600000)
     const mins = Math.floor((diff % 3600000) / 60000)
     const secs = Math.floor((diff % 60000) / 1000)
-    return `${String(hours).padStart(2, '0')}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`
+    const pad = n => String(n).padStart(2, '0')
+    return { hours: pad(hours), mins: pad(mins), secs: pad(secs) }
   })()
+
+  const todoBulkActions = [
+    statusFilter !== 'pending' && completedCount > 0 && {
+      key: 'uncheck', label: `Uncheck all (${completedCount})`, icon: RotateCcw, onClick: uncheckAll,
+    },
+    statusFilter === 'pending' && pendingCount > 0 && {
+      key: 'del-pending', label: `Delete pending (${pendingCount})`, icon: Trash2, onClick: deleteTodosByStatus, danger: true,
+    },
+    statusFilter === 'completed' && completedCount > 0 && {
+      key: 'del-done', label: `Delete completed (${completedCount})`, icon: Trash2, onClick: deleteTodosByStatus, danger: true,
+    },
+    statusFilter === 'all' && todos.length > 0 && {
+      key: 'del-all', label: `Delete all (${todos.length})`, icon: Trash2, onClick: deleteTodosByStatus, danger: true,
+    },
+  ].filter(Boolean)
 
   return (
     <div className="todo-layout">
       {/* LEFT SIDE: All List with Drag, Checkbox, Title, Edit, Delete */}
       <section className="panel todo-list-panel">
-        <div className="todo-panel-header">
-          <h2>To-Do List</h2>
-          <span className="todo-count-badge">
-            {completedCount} of {todos.length} done
-          </span>
+        <div className="plan-toolbar">
+          <div className="tabs">
+            {[
+              ['all', 'All', todos.length],
+              ['pending', 'Pending', pendingCount],
+              ['completed', 'Completed', completedCount],
+            ].map(([key, label, count]) => (
+              <button
+                key={key}
+                className={`tab tab-${key === 'completed' ? 'done' : key} ${statusFilter === key ? 'active' : ''}`}
+                onClick={() => setStatusFilter(key)}
+              >
+                {label} <span className="tab-count">{count}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="plan-toolbar-right">
+            <span className="todo-count-badge">
+              {completedCount} of {todos.length} done
+            </span>
+            <BulkMenu actions={todoBulkActions} />
+          </div>
         </div>
 
         <div className="todo-items-list">
@@ -709,122 +794,73 @@ function DailyTodoView() {
         </div>
       </section>
 
-      {/* RIGHT SIDE: Title Form + Filters (Pending/Completed) + Auto Reset Countdown + Actions (Uncheck All / Delete All) */}
-      <aside className="panel todo-form-panel">
-        <h2>{editingId ? 'Edit To-Do' : 'Add To-Do'}</h2>
-        <form onSubmit={handleSubmit}>
-          <label>
-            Title <span className="req">*</span>
-            <input
-              type="text"
-              placeholder="e.g. Do workout, Read book..."
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              required
-              autoFocus
-            />
-          </label>
-          <label>
-            Go to Link (Optional)
-            <input
-              type="text"
-              placeholder="e.g. https://github.com or website link"
-              value={link}
-              onChange={e => setLink(e.target.value)}
-            />
-          </label>
-          <div className="row">
-            <button type="submit" className="btn btn-primary">
-              {editingId ? 'Update' : 'Add To-Do'}
-            </button>
-            {editingId && (
-              <button type="button" className="btn btn-ghost" onClick={cancelEdit}>
-                Cancel
+      {/* RIGHT SIDE: Add form, with the daily reset countdown as its own card below */}
+      <div className="side-col">
+        <aside className="panel todo-form-panel">
+          <h2>{editingId ? 'Edit To-Do' : 'Add To-Do'}</h2>
+          <form onSubmit={handleSubmit}>
+            <label>
+              Title <span className="req">*</span>
+              <input
+                type="text"
+                placeholder="e.g. Do workout, Read book..."
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                required
+                autoFocus
+              />
+            </label>
+            <label>
+              Go to Link (Optional)
+              <input
+                type="text"
+                placeholder="e.g. https://github.com or website link"
+                value={link}
+                onChange={e => setLink(e.target.value)}
+              />
+            </label>
+            <div className="row">
+              <button type="submit" className="btn btn-primary">
+                {editingId ? 'Update' : 'Add To-Do'}
               </button>
-            )}
-          </div>
-        </form>
-
-        {/* Option: Pending & Completed Filter */}
-        <div className="right-panel-section">
-          <span className="right-section-title">Status Filter</span>
-          <div className="right-filter-group">
-            <button
-              type="button"
-              className={`right-filter-chip ${statusFilter === 'all' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('all')}
-            >
-              All <span className="chip-count">{todos.length}</span>
-            </button>
-            <button
-              type="button"
-              className={`right-filter-chip ${statusFilter === 'pending' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('pending')}
-            >
-              Pending <span className="chip-count chip-amber">{pendingCount}</span>
-            </button>
-            <button
-              type="button"
-              className={`right-filter-chip ${statusFilter === 'completed' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('completed')}
-            >
-              Completed <span className="chip-count chip-green">{completedCount}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Option: Daily Reset Countdown (11:59 PM) */}
-        <div className="right-panel-section countdown-section">
-          <span className="right-section-title">Daily Reset Countdown (11:59 PM)</span>
-          <div className="countdown-card">
-            <div className="countdown-clock-row">
-              <span className="clock-icon">⏳</span>
-              <span className="countdown-digits">
-                {midnightCountdown}
-              </span>
+              {editingId && (
+                <button type="button" className="btn btn-ghost" onClick={cancelEdit}>
+                  Cancel
+                </button>
+              )}
             </div>
-            <p className="countdown-hint">
-              {completedCount > 0
-                ? `${completedCount} checked task${completedCount === 1 ? '' : 's'} will automatically reset after 11:59 PM tonight.`
-                : 'Checked to-dos automatically reset to unchecked after 11:59 PM every night.'}
-            </p>
-          </div>
-        </div>
+          </form>
+        </aside>
 
-        {/* Option: Status-Aware Quick Actions */}
-        <div className="right-panel-section">
-          <span className="right-section-title">Quick Actions</span>
-          <div className="right-actions-list">
-            {(statusFilter === 'completed' || statusFilter === 'all') && (
-              <button
-                type="button"
-                className="btn btn-ghost action-full-btn"
-                disabled={completedCount === 0}
-                onClick={uncheckAll}
-                title="Reset or uncheck all completed to-dos"
-              >
-                🔄 Uncheck All ({completedCount})
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="btn btn-danger action-full-btn"
-              disabled={
-                statusFilter === 'pending'
-                  ? pendingCount === 0
-                  : statusFilter === 'completed'
-                  ? completedCount === 0
-                  : todos.length === 0
-              }
-              onClick={deleteTodosByStatus}
-              title={`Delete ${statusFilter === 'pending' ? 'pending' : statusFilter === 'completed' ? 'completed' : 'all'} to-dos`}
-            >
-              🗑 Delete {statusFilter === 'pending' ? `Pending (${pendingCount})` : statusFilter === 'completed' ? `Completed (${completedCount})` : `All (${todos.length})`}
-            </button>
+        {/* Daily Reset Countdown (11:59 PM) */}
+        <div className="panel weekly-alert-card">
+          <div className="weekly-alert-header">
+            <Hourglass size={14} className="weekly-alert-icon" />
+            <strong className="weekly-alert-title">Daily reset</strong>
+            <span className="weekly-alert-badge">11:59 PM</span>
           </div>
+
+          <div className="cleanup-countdown-digits">
+            {[
+              [midnightCountdown.hours, 'h'],
+              [midnightCountdown.mins, 'm'],
+              [midnightCountdown.secs, 's'],
+            ].map(([value, unit]) => (
+              <span key={unit} className="countdown-time-unit">
+                <span className="unit-number">{value}</span>
+                <span className="unit-label">{unit}</span>
+              </span>
+            ))}
+            <span className="cleanup-countdown-target">until tonight</span>
+          </div>
+
+          <p className="weekly-alert-text">
+            {completedCount > 0
+              ? `${completedCount} checked task${completedCount === 1 ? '' : 's'} will automatically reset after 11:59 PM tonight.`
+              : 'Checked to-dos automatically reset to unchecked after 11:59 PM every night.'}
+          </p>
         </div>
-      </aside>
+      </div>
     </div>
   )
 }
@@ -845,8 +881,6 @@ function MyPlanView() {
   const [priorityFilter, setPriorityFilter] = useState('All')
   const [personFilter, setPersonFilter] = useState('all') // 'all' | 'assigned' | 'unassigned'
   const [showFilters, setShowFilters] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef(null)
   const [selected, setSelected] = useState(() => new Set())
   const [nowTime, setNowTime] = useState(Date.now())
 
@@ -1017,21 +1051,6 @@ function MyPlanView() {
     showSuccessToast('Plans deleted')
   }
 
-  // Close the bulk-actions menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return
-    function onDown(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [menuOpen])
-
-  function runMenuAction(fn) {
-    setMenuOpen(false)
-    fn()
-  }
-
   const total = plans.length
   const doneCount = plans.filter(p => p.done).length
   const leftCount = total - doneCount
@@ -1160,36 +1179,7 @@ function MyPlanView() {
                 {activeFilterCount > 0 && <span className="tool-btn-count">{activeFilterCount}</span>}
               </button>
 
-              <div className="menu-wrap" ref={menuRef}>
-                <button
-                  type="button"
-                  className={`tool-btn icon-only ${menuOpen ? 'active' : ''}`}
-                  onClick={() => setMenuOpen(o => !o)}
-                  title="Bulk actions"
-                  aria-label="Bulk actions"
-                >
-                  <MoreHorizontal size={16} />
-                </button>
-                {menuOpen && (
-                  <div className="menu-pop">
-                    {bulkActions.length === 0 ? (
-                      <span className="menu-empty">No actions available</span>
-                    ) : (
-                      bulkActions.map(({ key, label, icon: Icon, onClick, danger }) => (
-                        <button
-                          key={key}
-                          type="button"
-                          className={`menu-item ${danger ? 'danger' : ''}`}
-                          onClick={() => runMenuAction(onClick)}
-                        >
-                          <Icon size={14} />
-                          {label}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
+              <BulkMenu actions={bulkActions} />
             </div>
           </div>
 
